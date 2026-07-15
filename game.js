@@ -26,12 +26,12 @@
     left: "right",
     right: "left",
   };
-  const balloonPalette = ["balloon-round", "balloon-oval", "balloon-diamond", "balloon-star"];
-  const scoreTypes = [
-    { type: "score", label: "10", className: "balloon-score" },
-    { type: "score", label: "20", className: "balloon-score" },
-    { type: "heart", label: "♥", className: "balloon-heart" },
-    { type: "growth", label: "G", className: "balloon-growth" },
+  const balloonShapes = ["balloon-round", "balloon-oval", "balloon-diamond", "balloon-star"];
+  const balloonTypes = [
+    { type: "score", label: "10", className: "balloon-score", value: 10 },
+    { type: "score", label: "20", className: "balloon-score", value: 20 },
+    { type: "heart", label: "♥", className: "balloon-heart", value: 0 },
+    { type: "growth", label: "G", className: "balloon-growth", value: 0 },
   ];
 
   const state = {
@@ -45,13 +45,14 @@
     best: Number(localStorage.getItem(storageKey) || 0),
     lives: 3,
     level: 1,
-    speed: 85,
+    speed: 88,
     spawnInterval: 1200,
     move: null,
     lastDirection: "none",
-    activeTimerGuard: false,
     balloons: [],
+    arrows: [],
     loopToken: 0,
+    lastShotAt: 0,
     player: {
       x: 0.5,
       y: 0.88,
@@ -62,7 +63,13 @@
     },
   };
 
-  const arenaRect = () => arena.getBoundingClientRect();
+  function arenaRect() {
+    return arena.getBoundingClientRect();
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
 
   function setStatus(text) {
     statusEl.textContent = text;
@@ -82,6 +89,45 @@
     }
   }
 
+  function renderPlayer() {
+    const rect = arenaRect();
+    const width = rect.width * state.player.width;
+    const height = rect.height * state.player.height;
+    const x = clamp(state.player.x * rect.width - width / 2, 8, rect.width - width - 8);
+    const y = clamp(state.player.y * rect.height - height / 2, 8, rect.height - height - 8);
+    playerEl.style.width = `${width}px`;
+    playerEl.style.height = `${height}px`;
+    playerEl.style.left = `${x}px`;
+    playerEl.style.top = `${y}px`;
+  }
+
+  function renderBalloon(balloon) {
+    const rect = arenaRect();
+    const width = balloon.size;
+    const height = balloon.height;
+    const x = balloon.x * rect.width - width / 2;
+    const y = balloon.y * rect.height - height / 2;
+    balloon.el.style.width = `${width}px`;
+    balloon.el.style.height = `${height}px`;
+    balloon.el.style.transform = `translate(${x}px, ${y}px) rotate(${balloon.spin * balloon.y * 180}deg)`;
+  }
+
+  function renderArrow(arrow) {
+    const rect = arenaRect();
+    const x = arrow.x * rect.width - arrow.width / 2;
+    const y = arrow.y * rect.height - arrow.height / 2;
+    arrow.el.style.width = `${arrow.width}px`;
+    arrow.el.style.height = `${arrow.height}px`;
+    arrow.el.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  function clearEntities(list) {
+    for (const entity of list) {
+      entity.el.remove();
+    }
+    list.length = 0;
+  }
+
   function resetPlayer() {
     state.player = {
       x: 0.5,
@@ -95,7 +141,12 @@
     state.move = null;
   }
 
-  function resetGame(full = true) {
+  function updatePlayerShape() {
+    state.player.width = clamp(0.12 + state.player.growth * 0.015, 0.12, 0.24);
+  }
+
+  function resetGame({ keepReadyStatus = true, seedBalloons = true } = {}) {
+    cancelLoop();
     state.running = false;
     state.paused = false;
     state.over = false;
@@ -104,16 +155,21 @@
     state.score = 0;
     state.lives = 3;
     state.level = 1;
-    state.speed = 85;
+    state.speed = 88;
     state.spawnInterval = 1200;
-    state.balloons.forEach((balloon) => balloon.el.remove());
-    state.balloons = [];
+    state.lastShotAt = 0;
+    clearEntities(state.balloons);
+    clearEntities(state.arrows);
     resetPlayer();
-    if (full) {
-      syncHud();
+    updatePlayerShape();
+    syncHud();
+    if (keepReadyStatus) {
       setStatus("Ready");
     }
     renderPlayer();
+    if (seedBalloons) {
+      spawnInitialBalloons();
+    }
   }
 
   function cancelLoop() {
@@ -137,23 +193,19 @@
 
   function startGame() {
     if (state.over) {
-      resetGame(false);
+      resetGame({ keepReadyStatus: false, seedBalloons: true });
     }
     if (state.running && !state.paused) {
       return;
     }
-    if (!state.running) {
-      state.running = true;
-      state.paused = false;
-      state.loopToken += 1;
-      state.lastFrame = 0;
-      setStatus("Running");
-      scheduleLoop();
-      return;
-    }
+    state.running = true;
     state.paused = false;
     state.loopToken += 1;
     state.lastFrame = 0;
+    state.spawnClock = Math.max(state.spawnClock, 250);
+    if (state.balloons.length === 0) {
+      spawnInitialBalloons();
+    }
     setStatus("Running");
     scheduleLoop();
   }
@@ -164,27 +216,23 @@
     }
     state.paused = !state.paused;
     state.loopToken += 1;
-    setStatus(state.paused ? "Paused" : "Running");
     if (state.paused) {
       cancelLoop();
+      setStatus("Paused");
     } else {
       state.lastFrame = 0;
+      setStatus("Running");
       scheduleLoop();
     }
   }
 
   function restartGame() {
-    resetGame(true);
-    state.loopToken += 1;
+    resetGame({ keepReadyStatus: false, seedBalloons: true });
     state.running = true;
     state.paused = false;
-    state.lastFrame = 0;
+    state.loopToken += 1;
     setStatus("Running");
     scheduleLoop();
-  }
-
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
   }
 
   function directionAllowed(next) {
@@ -214,52 +262,90 @@
     }
   }
 
-  function spawnBalloon() {
-    const typeIndex = Math.floor(Math.random() * scoreTypes.length);
-    const typeMeta = scoreTypes[typeIndex];
-    const size = 44 + Math.random() * 28;
-    const lane = Math.random() * 0.82 + 0.04;
-    const el = document.createElement("div");
-    const shapeClass = balloonPalette[Math.floor(Math.random() * balloonPalette.length)];
+  function spawnBalloon({ visible = false } = {}) {
+    const typeMeta = balloonTypes[Math.floor(Math.random() * balloonTypes.length)];
+    const shapeClass = balloonShapes[Math.floor(Math.random() * balloonShapes.length)];
     const wobbleClass = ["balloon-pulse", "balloon-float", "balloon-bounce"][Math.floor(Math.random() * 3)];
-
+    const size = 44 + Math.random() * 28;
+    const height = size * (typeMeta.type === "score" ? 1.18 : 1);
+    const el = document.createElement("div");
     el.className = `balloon ${typeMeta.className} ${shapeClass} ${wobbleClass}`;
     el.textContent = typeMeta.label;
-    el.style.width = `${size}px`;
-    el.style.height = `${size * (typeMeta.type === "score" ? 1.18 : 1)}px`;
     arena.appendChild(el);
 
-    state.balloons.push({
+    const balloon = {
       el,
       type: typeMeta.type,
-      x: lane,
-      y: -0.14,
+      value: typeMeta.value,
+      x: clamp(0.08 + Math.random() * 0.84, 0.08, 0.92),
+      y: visible ? 0.1 + Math.random() * 0.18 : -0.14,
       size,
-      speed: state.speed * (0.7 + Math.random() * 0.6),
+      height,
+      speed: state.speed * (0.72 + Math.random() * 0.55),
       drift: (Math.random() - 0.5) * 0.1,
       spin: (Math.random() - 0.5) * 1.2,
-      value: typeMeta.type === "score" ? (typeIndex === 0 ? 10 : 20) : 0,
-      shape: shapeClass,
       lifeBonus: typeMeta.type === "heart" ? 1 : 0,
       growthBonus: typeMeta.type === "growth" ? 1 : 0,
-    });
+    };
+
+    state.balloons.push(balloon);
+    renderBalloon(balloon);
+    return balloon;
+  }
+
+  function spawnInitialBalloons() {
+    if (state.balloons.length > 0) {
+      return;
+    }
+    spawnBalloon({ visible: true });
+    spawnBalloon({ visible: true });
+  }
+
+  function fireArrow() {
+    if (state.over) {
+      return;
+    }
+    if (!state.running) {
+      startGame();
+    }
+    if (state.paused) {
+      return;
+    }
+    const now = performance.now();
+    if (now - state.lastShotAt < 180) {
+      return;
+    }
+    state.lastShotAt = now;
+
+    const el = document.createElement("div");
+    el.className = "arrow";
+    arena.appendChild(el);
+
+    const arrow = {
+      el,
+      x: state.player.x,
+      y: state.player.y - state.player.height / 2 + 0.01,
+      width: 12,
+      height: 26,
+      speed: 0.9,
+    };
+
+    state.arrows.push(arrow);
+    renderArrow(arrow);
   }
 
   function addScore(points) {
     state.score += points;
     persistBest();
-    if (state.score > state.best) {
-      bestEl.textContent = String(state.score);
-    }
     const nextLevel = Math.floor(state.score / 100) + 1;
     if (nextLevel > state.level) {
       state.level = nextLevel;
-      state.speed = 85 + (state.level - 1) * 18;
+      state.speed = 88 + (state.level - 1) * 18;
       state.spawnInterval = Math.max(520, 1200 - (state.level - 1) * 130);
       state.player.speed = 0.38 + (state.level - 1) * 0.015;
-      state.player.growth = Math.min(4, state.player.growth + 1);
-      state.player.width = clamp(0.12 + state.player.growth * 0.015, 0.12, 0.22);
-      statusEl.textContent = `Level ${state.level}`;
+      state.player.growth = Math.min(5, state.player.growth + 1);
+      updatePlayerShape();
+      setStatus(`Level ${state.level}`);
     }
     syncHud();
   }
@@ -286,9 +372,10 @@
     persistBest();
     syncHud();
     setStatus("Game Over");
+    cancelLoop();
   }
 
-  function catchBalloon(balloon) {
+  function resolveBalloonHit(balloon) {
     if (balloon.type === "score") {
       addScore(balloon.value);
     } else if (balloon.type === "heart") {
@@ -296,66 +383,46 @@
       addScore(15);
     } else if (balloon.type === "growth") {
       state.player.growth = Math.min(5, state.player.growth + 1);
-      state.player.width = clamp(state.player.width + 0.015, 0.12, 0.24);
+      updatePlayerShape();
       addScore(20);
     }
     balloon.el.remove();
   }
 
-  function removeBalloon(index, lost = false) {
-    const balloon = state.balloons[index];
-    if (!balloon) {
-      return;
-    }
-    balloon.el.remove();
-    state.balloons.splice(index, 1);
-    if (lost) {
-      loseLife();
-    }
+  function rectsIntersect(a, b) {
+    return !(
+      a.x + a.w < b.x ||
+      a.x > b.x + b.w ||
+      a.y + a.h < b.y ||
+      a.y > b.y + b.h
+    );
   }
 
-  function renderPlayer() {
-    const rect = arenaRect();
-    const playerWidth = rect.width * state.player.width;
-    const playerHeight = rect.height * state.player.height;
-    const x = clamp(state.player.x * rect.width - playerWidth / 2, 8, rect.width - playerWidth - 8);
-    const y = clamp(state.player.y * rect.height - playerHeight / 2, 8, rect.height - playerHeight - 8);
-    playerEl.style.width = `${playerWidth}px`;
-    playerEl.style.height = `${playerHeight}px`;
-    playerEl.style.left = `${x}px`;
-    playerEl.style.top = `${y}px`;
-  }
-
-  function renderBalloon(balloon) {
-    const rect = arenaRect();
-    const width = balloon.size;
-    const height = balloon.el.offsetHeight || balloon.size;
-    const x = balloon.x * rect.width;
-    const y = balloon.y * rect.height;
-    balloon.el.style.width = `${width}px`;
-    balloon.el.style.height = `${height}px`;
-    balloon.el.style.transform = `translate(${x}px, ${y}px) rotate(${balloon.spin * (balloon.y * 2)}deg)`;
-  }
-
-  function intersects(balloon, rect) {
-    const balloonRect = {
-      x: balloon.x * rect.width,
-      y: balloon.y * rect.height,
+  function balloonBounds(balloon, rect) {
+    return {
+      x: balloon.x * rect.width - balloon.size / 2,
+      y: balloon.y * rect.height - balloon.height / 2,
       w: balloon.size,
-      h: balloon.el.offsetHeight || balloon.size,
+      h: balloon.height,
     };
-    const playerRect = {
-      x: state.player.x * rect.width - rect.width * state.player.width / 2,
-      y: state.player.y * rect.height - rect.height * state.player.height / 2,
+  }
+
+  function arrowBounds(arrow, rect) {
+    return {
+      x: arrow.x * rect.width - arrow.width / 2,
+      y: arrow.y * rect.height - arrow.height / 2,
+      w: arrow.width,
+      h: arrow.height,
+    };
+  }
+
+  function playerBounds(rect) {
+    return {
+      x: state.player.x * rect.width - (rect.width * state.player.width) / 2,
+      y: state.player.y * rect.height - (rect.height * state.player.height) / 2,
       w: rect.width * state.player.width,
       h: rect.height * state.player.height,
     };
-    return !(
-      balloonRect.x + balloonRect.w < playerRect.x ||
-      balloonRect.x > playerRect.x + playerRect.w ||
-      balloonRect.y + balloonRect.h < playerRect.y ||
-      balloonRect.y > playerRect.y + playerRect.h
-    );
   }
 
   function updatePlayer(dt) {
@@ -369,7 +436,43 @@
     state.player.x += move.dx * state.player.speed * dt;
     state.player.y += move.dy * state.player.speed * dt;
     state.player.x = clamp(state.player.x, 0.08, 0.92);
-    state.player.y = clamp(state.player.y, 0.55, 0.92);
+    state.player.y = clamp(state.player.y, 0.58, 0.92);
+  }
+
+  function updateArrows(dt) {
+    const rect = arenaRect();
+    for (let i = state.arrows.length - 1; i >= 0; i -= 1) {
+      const arrow = state.arrows[i];
+      arrow.y -= (arrow.speed / 1000) * dt;
+      if (arrow.y < -0.2) {
+        arrow.el.remove();
+        state.arrows.splice(i, 1);
+        continue;
+      }
+
+      const arrowRect = arrowBounds(arrow, rect);
+      let hit = false;
+
+      for (let j = state.balloons.length - 1; j >= 0; j -= 1) {
+        const balloon = state.balloons[j];
+        const balloonRect = balloonBounds(balloon, rect);
+        if (rectsIntersect(arrowRect, balloonRect)) {
+          resolveBalloonHit(balloon);
+          balloon.el.remove();
+          state.balloons.splice(j, 1);
+          hit = true;
+          break;
+        }
+      }
+
+      if (hit) {
+        arrow.el.remove();
+        state.arrows.splice(i, 1);
+        continue;
+      }
+
+      renderArrow(arrow);
+    }
   }
 
   function updateBalloons(dt) {
@@ -378,16 +481,15 @@
       const balloon = state.balloons[i];
       balloon.y += (balloon.speed / 1000) * dt;
       balloon.x += balloon.drift * dt * 0.2;
-      balloon.x = clamp(balloon.x, 0.02, 0.98);
-
-      if (intersects(balloon, rect)) {
-        catchBalloon(balloon);
-        state.balloons.splice(i, 1);
-        continue;
-      }
+      balloon.x = clamp(balloon.x, 0.06, 0.94);
 
       if (balloon.y > 1.08) {
-        removeBalloon(i, balloon.type === "score");
+        const lose = balloon.type === "score";
+        balloon.el.remove();
+        state.balloons.splice(i, 1);
+        if (lose) {
+          loseLife();
+        }
         continue;
       }
 
@@ -417,6 +519,7 @@
     state.lastFrame = timestamp;
 
     updatePlayer(dt);
+    updateArrows(dt);
     updateBalloons(dt);
     spawnLogic(dt);
     renderPlayer();
@@ -441,15 +544,18 @@
       d: "right",
       D: "right",
     };
-    if (event.key === " " || event.key === "Spacebar") {
+
+    if (event.key === " " || event.code === "Space") {
       event.preventDefault();
+      fireArrow();
+      return;
+    }
+
+    if (event.key === "p" || event.key === "P" || event.key === "Escape") {
       pauseGame();
       return;
     }
-    if (event.key === "p" || event.key === "P") {
-      pauseGame();
-      return;
-    }
+
     const direction = keyMap[event.key];
     if (!direction) {
       return;
@@ -485,6 +591,8 @@
         const action = button.getAttribute("data-action");
         if (action === "start") {
           startGame();
+        } else if (action === "shoot") {
+          fireArrow();
         } else if (action === "pause") {
           pauseGame();
         } else if (action === "restart") {
@@ -523,22 +631,24 @@
     window.addEventListener("resize", () => {
       renderPlayer();
       state.balloons.forEach(renderBalloon);
+      state.arrows.forEach(renderArrow);
     });
   }
 
   function initialize() {
     bestEl.textContent = String(state.best);
     syncHud();
-    renderPlayer();
+    resetGame({ keepReadyStatus: true, seedBalloons: true });
     bindControls();
-    cancelLoop();
     setStatus("Ready");
   }
 
   initialize();
+
   window.balloonGame = {
     startGame,
     pauseGame,
     restartGame,
+    fireArrow,
   };
 })();

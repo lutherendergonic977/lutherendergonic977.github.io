@@ -465,6 +465,47 @@ h1 {
   will-change: transform;
 }
 
+.arrow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 26px;
+  color: #fff;
+  background: linear-gradient(180deg, #111827, #334155);
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgba(15, 23, 32, 0.28);
+  will-change: transform;
+}
+
+.arrow::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 10px solid #111827;
+}
+
+.arrow::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 7px solid rgba(255, 255, 255, 0.75);
+}
+
 .balloon::after {
   content: "";
   position: absolute;
@@ -538,6 +579,11 @@ h1 {
 
 .control-center {
   background: rgba(10, 102, 194, 0.08);
+}
+
+.control-center:active,
+.control:active {
+  transform: translateY(1px);
 }
 
 .instructions {
